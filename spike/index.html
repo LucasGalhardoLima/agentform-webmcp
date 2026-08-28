@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPIKE-01 — WebMCP end-to-end probe</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a19; --muted: #6b6b66;
+    --line: #e4e4e0; --accent: #2f5fe0; --ok: #17795e; --warn: #a35b00; --err: #b3261e;
+    --touch: #fff3c4; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e23; --ink: #ececef; --muted: #9a9aa3;
+      --line: #32323a; --accent: #7d9cff; --ok: #4cc79c; --warn: #e0a350; --err: #ff8a80;
+      --touch: #4a3f14;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
+  header h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p.sub { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; }
+
+  #banner {
+    padding: 10px 14px; border-radius: 8px; font-size: 13.5px; margin-bottom: 10px;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  #banner.live { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  #banner.dead { border-color: color-mix(in srgb, var(--err) 45%, var(--line)); }
+  #banner .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 7px; vertical-align: 1px; }
+  #banner.live .dot { background: var(--ok); }
+  #banner.dead .dot { background: var(--err); }
+  #envReport { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 20px; white-space: pre-wrap; }
+
+  .cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,380px); gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: minmax(0,1fr); } }
+
+  section.card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px; margin-bottom: 16px;
+  }
+  section.card > h2 { font-size: 14px; margin: 0 0 2px; letter-spacing: -0.005em; }
+  section.card > p.hint { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; }
+
+  label.field { display: block; margin-bottom: 13px; font-size: 13px; font-weight: 500; }
+  label.field > span.lbl { display: block; margin-bottom: 5px; }
+  label.field .req { color: var(--err); }
+  input[type=text], input[type=email], textarea, select {
+    width: 100%; padding: 8px 10px; font: inherit; font-size: 14px;
+    color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px;
+  }
+  textarea { min-height: 78px; resize: vertical; }
+  input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 0 0 13px; }
+  fieldset legend { font-size: 13px; font-weight: 500; padding: 0 4px; }
+  .radios { display: flex; gap: 16px; }
+  .radios label, label.check { font-weight: 400; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+  label.check { margin-bottom: 13px; }
+
+  .touched { animation: flash 1.4s ease-out; }
+  @keyframes flash { 0%,35% { background: var(--touch); } 100% { background: var(--bg); } }
+  fieldset.touched, .check-wrap.touched { animation: flashT 1.4s ease-out; }
+  @keyframes flashT { 0%,35% { background: var(--touch); } 100% { background: transparent; } }
+
+  button {
+    font: inherit; font-size: 13.5px; font-weight: 500; padding: 8px 14px;
+    border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--ink); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { border-color: var(--muted); }
+  button.primary:hover { filter: brightness(1.08); }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  #successBox {
+    display: none; margin-top: 12px; padding: 12px 14px; border-radius: 8px; font-size: 13.5px;
+    background: color-mix(in srgb, var(--ok) 12%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line)); color: var(--ok);
+  }
+  #successBox.on { display: block; }
+  #errBox {
+    display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+    background: color-mix(in srgb, var(--err) 10%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--err) 40%, var(--line)); color: var(--err);
+  }
+  #errBox.on { display: block; }
+
+  /* --- log panel --- */
+  aside { position: sticky; top: 16px; }
+  #log { list-style: none; margin: 0; padding: 0; max-height: 62vh; overflow-y: auto; font-family: var(--mono); font-size: 11.5px; }
+  #log li { padding: 7px 0; border-bottom: 1px solid var(--line); }
+  #log li:last-child { border-bottom: 0; }
+  #log .t { color: var(--muted); }
+  #log .n { font-weight: 600; }
+  #log .args { display: block; color: var(--muted); word-break: break-word; margin-top: 2px; }
+  #log li.evt .n { color: var(--warn); }
+  #log li.err .n { color: var(--err); }
+  #log li.ret .n { color: var(--ok); }
+  #log:empty::after { content: "no tool calls yet"; color: var(--muted); font-style: italic; }
+
+  code { font-family: var(--mono); font-size: 0.92em; background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 4px; border-radius: 3px; }
+  a { color: var(--accent); }
+  .toolcount { float: right; font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>SPIKE-01 — WebMCP end-to-end probe</h1>
+  <p class="sub">Throwaway page. Registers WebMCP tools, logs every invocation, and probes the parts the docs disagree on.</p>
+  <div id="banner"><span class="dot"></span><span id="bannerText">checking…</span></div>
+  <pre id="envReport">…</pre>
+</header>
+
+<div class="cols">
+  <main>
+
+    <!-- ============ PASSO 2 — imperative form ============ -->
+    <section class="card">
+      <h2>Imperative form <span class="toolcount" id="tc"></span></h2>
+      <p class="hint">Six field types. Driven by <code>get_form_state</code> / <code>fill_form</code> / <code>submit_form</code>.</p>
+
+      <form id="mainForm" novalidate>
+        <label class="field" for="fullName">
+          <span class="lbl">Full name <span class="req" aria-label="required">*</span></span>
+          <input type="text" id="fullName" name="fullName" autocomplete="name">
+        </label>
+
+        <label class="field" for="email">
+          <span class="lbl">Email <span class="req" aria-label="required">*</span></span>
+          <input type="email" id="email" name="email" autocomplete="email">
+        </label>
+
+        <label class="field" for="message">
+          <span class="lbl">Message <span class="req" aria-label="required">*</span></span>
+          <textarea id="message" name="message"></textarea>
+        </label>
+
+        <label class="field" for="topic">
+          <span class="lbl">Topic <span class="req" aria-label="required">*</span></span>
+          <select id="topic" name="topic">
+            <option value="">— select —</option>
+            <option value="support">Support</option>
+            <option value="sales">Sales</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <fieldset id="contactViaSet">
+          <legend>Contact via <span class="req" aria-label="required">*</span></legend>
+          <div class="radios">
+            <label><input type="radio" name="contactVia" value="email"> Email</label>
+            <label><input type="radio" name="contactVia" value="phone"> Phone</label>
+          </div>
+        </fieldset>
+
+        <div class="check-wrap" id="subscribeWrap">
+          <label class="check" for="subscribe">
+            <input type="checkbox" id="subscribe" name="subscribe">
+            Subscribe to the newsletter
+          </label>
+        </div>
+
+        <div class="btnrow">
+          <button type="submit" class="primary">Send</button>
+          <button type="button" id="resetBtn">Reset</button>
+        </div>
+      </form>
+
+      <div id="errBox" role="alert"></div>
+      <div id="successBox" role="status"></div>
+    </section>
+
+    <!-- ============ PASSO 3 — declarative form ============ -->
+    <section class="card">
+      <h2>Declarative form</h2>
+      <p class="hint">Same page, HTML-attribute API. Does it surface as a second, distinct tool?</p>
+      <form id="quickForm"
+            toolname="quickContactTool"
+            tooldescription="Send a quick contact message to a specific team."
+            toolautosubmit
+            action="#" novalidate>
+        <label class="field" for="qName">
+          <span class="lbl">Name</span>
+          <input type="text" id="qName" name="qName">
+        </label>
+        <label class="field" for="team">
+          <span class="lbl">Team <span class="req" aria-label="required">*</span></span>
+          <select id="team" name="team" required
+                  toolparamdescription="Which team should receive this message.">
+            <option value="support">Support</option>
+            <option value="sales">Sales</option>
+          </select>
+        </label>
+        <div class="btnrow"><button type="submit">Send</button></div>
+      </form>
+      <div id="qResult" class="hint" style="margin-top:10px"></div>
+    </section>
+
+    <!-- ============ probes ============ -->
+    <section class="card">
+      <h2>Local invocation (no agent needed)</h2>
+      <p class="hint">Calls the same <code>execute</code> handlers the agent would, so the page is testable before the flag is on. Real agent calls log identically.</p>
+      <div class="btnrow">
+        <button type="button" data-sim="get_form_state">get_form_state</button>
+        <button type="button" data-sim="fill_form">fill_form (sample)</button>
+        <button type="button" data-sim="submit_form">submit_form</button>
+        <button type="button" data-sim="probe_return_string">probe_return_string</button>
+        <button type="button" data-sim="probe_return_object">probe_return_object</button>
+        <button type="button" data-sim="probe_return_mcp_content">probe_return_mcp_content</button>
+        <button type="button" data-sim="probe_throws">probe_throws</button>
+        <button type="button" id="unregBtn">unregister probe_throws (AbortController)</button>
+      </div>
+    </section>
+
+  </main>
+
+  <aside>
+    <section class="card">
+      <h2>Call log</h2>
+      <p class="hint">Every tool invocation, with args, return value and latency.</p>
+      <ul id="log"></ul>
+      <div class="btnrow" style="margin-top:12px">
+        <button type="button" id="clearLog">Clear</button>
+        <button type="button" id="copyLog">Copy</button>
+      </div>
+    </section>
+  </aside>
+</div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* =========================================================
+     LOG PANEL — the spike's debugging instrument
+     ========================================================= */
+  const logEl   = document.getElementById("log");
+  const T0      = performance.now();
+  const entries = [];
+
+  function log(name, payload, kind) {
+    const now  = new Date();
+    const rel  = ((performance.now() - T0) / 1000).toFixed(2);
+    const time = now.toTimeString().slice(0, 8) + "." + String(now.getMilliseconds()).padStart(3, "0");
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+
+    const li = document.createElement("li");
+    if (kind) li.className = kind;
+    li.innerHTML =
+      '<span class="t">' + time + "  +" + rel + "s</span>  " +
+      '<span class="n"></span><span class="args"></span>';
+    li.querySelector(".n").textContent    = name;
+    li.querySelector(".args").textContent = body ?? "";
+    logEl.prepend(li);
+
+    entries.unshift(time + " +" + rel + "s  " + name + "  " + (body ?? ""));
+    console.log("[spike]", name, payload);
+  }
+
+  document.getElementById("clearLog").onclick = () => { logEl.innerHTML = ""; entries.length = 0; };
+  document.getElementById("copyLog").onclick  = () =>
+    navigator.clipboard.writeText(entries.slice().reverse().join("\n"));
+
+  /* =========================================================
+     FEATURE DETECTION — which namespace does this env expose?
+     ========================================================= */
+  const onDocument  = "modelContext" in document;
+  const onNavigator = "modelContext" in navigator;
+  const mc = (onDocument && document.modelContext) || (onNavigator && navigator.modelContext) || null;
+  const HAS_WEBMCP = !!(mc && typeof mc.registerTool === "function");
+
+  const banner     = document.getElementById("banner");
+  const bannerText = document.getElementById("bannerText");
+
+  if (HAS_WEBMCP) {
+    banner.className = "live";
+    bannerText.innerHTML =
+      "WebMCP live on <code>" + (onDocument ? "document" : "navigator") +
+      ".modelContext</code> — tools are exposed to a connected agent.";
+  } else {
+    banner.className = "dead";
+    bannerText.innerHTML =
+      "WebMCP unavailable in this browser — see setup in the README. " +
+      "Chrome 149+ with <code>chrome://flags/#enable-webmcp-testing</code>, or the ChatGPT desktop in-app browser. " +
+      "The buttons below still exercise the same handlers locally.";
+  }
+
+  // Everything the spike needs to know about the environment, in one line to copy.
+  const env = {
+    "document.modelContext": onDocument,
+    "navigator.modelContext": onNavigator,
+    methods: mc ? Object.getOwnPropertyNames(Object.getPrototypeOf(mc)).filter(k => k !== "constructor") : [],
+    secureContext: window.isSecureContext,
+    origin: location.origin,
+    ua: navigator.userAgent,
+  };
+  document.getElementById("envReport").textContent = JSON.stringify(env, null, 2);
+  log("env", env, "evt");
+
+  /* =========================================================
+     FORM MODEL
+     ========================================================= */
+  const form   = document.getElementById("mainForm");
+  const FIELDS = [
+    { key: "fullName",   type: "text",     label: "Full name",  required: true  },
+    { key: "email",      type: "email",    label: "Email",      required: true  },
+    { key: "message",    type: "textarea", label: "Message",    required: true  },
+    { key: "topic",      type: "select",   label: "Topic",      required: true,
+      options: ["support", "sales", "other"] },
+    { key: "contactVia", type: "radio",    label: "Contact via", required: true,
+      options: ["email", "phone"] },
+    { key: "subscribe",  type: "checkbox", label: "Subscribe to the newsletter", required: false },
+  ];
+
+  const readValue = (f) => {
+    if (f.type === "radio")    return form.querySelector('input[name="contactVia"]:checked')?.value ?? "";
+    if (f.type === "checkbox") return document.getElementById("subscribe").checked;
+    return document.getElementById(f.key).value;
+  };
+
+  const isEmpty = (f, v) => (f.type === "checkbox" ? false : String(v).trim() === "");
+
+  function readFormState() {
+    const fields = FIELDS.map(f => {
+      const value = readValue(f);
+      return {
+        name: f.key, type: f.type, label: f.label,
+        required: f.required, value,
+        empty: isEmpty(f, value),
+        ...(f.options ? { options: f.options } : {}),
+      };
+    });
+    return {
+      fields,
+      missingRequired: fields.filter(f => f.required && f.empty).map(f => f.name),
+      submitted: document.getElementById("successBox").classList.contains("on"),
+    };
+  }
+
+  function highlight(el) {
+    el.classList.remove("touched");
+    void el.offsetWidth;            // restart the CSS animation
+    el.classList.add("touched");
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function applyToForm(fields) {
+    const applied = [], rejected = [];
+
+    for (const [key, raw] of Object.entries(fields || {})) {
+      const f = FIELDS.find(x => x.key === key);
+      if (!f) { rejected.push(key + ": unknown field"); continue; }
+
+      if (f.options && f.type !== "checkbox" && !f.options.includes(String(raw))) {
+        rejected.push(key + ': "' + raw + '" not in [' + f.options.join(", ") + "]");
+        continue;
+      }
+
+      if (f.type === "radio") {
+        const input = form.querySelector('input[name="contactVia"][value="' + raw + '"]');
+        if (!input) { rejected.push(key + ": no such option"); continue; }
+        input.checked = true;
+        highlight(document.getElementById("contactViaSet"));
+      } else if (f.type === "checkbox") {
+        document.getElementById("subscribe").checked = Boolean(raw);
+        highlight(document.getElementById("subscribeWrap"));
+      } else {
+        const input = document.getElementById(key);
+        input.value = String(raw);
+        highlight(input);
+      }
+
+      const target = f.type === "radio"
+        ? form.querySelector('input[name="contactVia"]:checked')
+        : document.getElementById(key);
+      target?.dispatchEvent(new Event("input",  { bubbles: true }));
+      target?.dispatchEvent(new Event("change", { bubbles: true }));
+      applied.push(key);
+    }
+    return { applied, rejected };
+  }
+
+  function validate() {
+    const errors = readFormState().fields
+      .filter(f => f.required && f.empty)
+      .map(f => f.label + " is required");
+
+    const email = document.getElementById("email").value.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Email is not a valid address");
+    return errors;
+  }
+
+  const errBox     = document.getElementById("errBox");
+  const successBox = document.getElementById("successBox");
+
+  function showErrors(errors) {
+    errBox.textContent = "Cannot submit — " + errors.join("; ");
+    errBox.classList.add("on");
+    successBox.classList.remove("on");
+  }
+
+  function showSuccessState() {
+    errBox.classList.remove("on");
+    successBox.textContent = "Submitted. Thanks, " + (document.getElementById("fullName").value || "friend") + ".";
+    successBox.classList.add("on");
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const errors = validate();
+    if (errors.length) { showErrors(errors); log("submit(human)", { errors }, "err"); }
+    else               { showSuccessState();  log("submit(human)", { ok: true }, "ret"); }
+  });
+
+  document.getElementById("resetBtn").onclick = () => {
+    form.reset();
+    errBox.classList.remove("on");
+    successBox.classList.remove("on");
+    log("reset(human)", {}, "evt");
+  };
+
+  /* =========================================================
+     TOOL REGISTRATION
+     Every execute() is wrapped so the log records args, return
+     value and latency regardless of who called it.
+     ========================================================= */
+  const registry = new Map();          // name -> wrapped execute, for local invocation
+
+  async function register(spec, options) {
+    const wrapped = async (input, client) => {
+      const started = performance.now();
+      log(spec.name, input ?? {});
+      try {
+        const out = await spec.execute(input ?? {}, client);
+        log("↳ " + spec.name, { ms: Math.round(performance.now() - started), returned: out }, "ret");
+        return out;
+      } catch (err) {
+        log("↳ " + spec.name + " THREW", { ms: Math.round(performance.now() - started), error: String(err) }, "err");
+        throw err;
+      }
+    };
+
+    registry.set(spec.name, wrapped);
+
+    if (!HAS_WEBMCP) return;
+    try {
+      await mc.registerTool({
+        name:        spec.name,
+        title:       spec.title,
+        description: spec.description,
+        inputSchema: spec.inputSchema,
+        annotations: spec.annotations || {},
+        execute:     wrapped,
+      }, options);
+      log("registered", spec.name, "evt");
+    } catch (err) {
+      log("registerTool FAILED: " + spec.name, String(err), "err");
+    }
+  }
+
+  /* ---- the three product tools ---- */
+
+  register({
+    name: "get_form_state",
+    title: "Read form state",
+    description: "Read the current form: all fields, their types, labels, current values, and which required fields are still empty.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+    execute: async () => readFormState(),
+  });
+
+  register({
+    name: "fill_form",
+    title: "Fill form fields",
+    description: "Fill one or more fields of the contact form. Only the fields you provide are changed; the rest keep their current values. Values must match each field's type and allowed options.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fullName:   { type: "string",  description: "Full name of the respondent." },
+        email:      { type: "string",  description: "Contact email address." },
+        message:    { type: "string",  description: "Free-form message body." },
+        topic:      { type: "string",  enum: ["support", "sales", "other"], description: "Which topic the message is about." },
+        contactVia: { type: "string",  enum: ["email", "phone"], description: "Preferred contact channel." },
+        subscribe:  { type: "boolean", description: "Whether to subscribe to the newsletter." },
+      },
+      additionalProperties: false,
+    },
+    execute: async (fields) => {
+      const { applied, rejected } = applyToForm(fields);
+      return {
+        ok: rejected.length === 0,
+        updated: applied,
+        rejected,
+        stillMissing: readFormState().missingRequired,
+      };
+    },
+  });
+
+  register({
+    name: "submit_form",
+    title: "Submit the form",
+    description: "Validate and submit the contact form. Fails with a list of problems if required fields are missing or invalid.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: async () => {
+      const errors = validate();
+      if (errors.length) { showErrors(errors); return { ok: false, errors }; }
+      showSuccessState();
+      return { ok: true, message: "Form submitted successfully." };
+    },
+  });
+
+  /* ---- probes: the things the docs disagree about ---- */
+
+  // Chrome docs say execute returns a plain string; the W3C spec shows an MCP
+  // content array; Google's own demo returns a plain object. Register one of
+  // each and compare how the agent/panel renders them.
+  register({
+    name: "probe_return_string",
+    title: "Probe: string return",
+    description: "Diagnostic. Returns a plain JavaScript string.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+    execute: async () => "PLAIN_STRING_OK",
+  });
+
+  register({
+    name: "probe_return_object",
+    title: "Probe: object return",
+    description: "Diagnostic. Returns a plain JavaScript object.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+    execute: async () => ({ shape: "plain_object", ok: true, n: 42 }),
+  });
+
+  register({
+    name: "probe_return_mcp_content",
+    title: "Probe: MCP content array return",
+    description: "Diagnostic. Returns the MCP content-array shape from the W3C spec.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+    execute: async () => ({ content: [{ type: "text", text: "MCP_CONTENT_ARRAY_OK" }] }),
+  });
+
+  // How does a thrown error reach the agent? Registered with a signal so we can
+  // also test unregistration.
+  const abort = new AbortController();
+  register({
+    name: "probe_throws",
+    title: "Probe: thrown error",
+    description: "Diagnostic. Always throws, to observe how errors surface to the agent.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    execute: async () => { throw new Error("PROBE_INTENTIONAL_FAILURE"); },
+  }, { signal: abort.signal });
+
+  document.getElementById("unregBtn").onclick = () => {
+    abort.abort();
+    registry.delete("probe_throws");
+    log("abort() called on probe_throws", { expect: "toolchange fires, tool disappears" }, "evt");
+  };
+
+  /* ---- toolchange: does the agent notice late registration? ---- */
+  if (HAS_WEBMCP && typeof mc.addEventListener === "function") {
+    mc.addEventListener("toolchange", async () => {
+      let names = "unavailable";
+      try {
+        if (typeof mc.getTools === "function") names = (await mc.getTools()).map(t => t.name);
+      } catch (err) { names = "getTools failed: " + err; }
+      log("toolchange", names, "evt");
+      document.getElementById("tc").textContent =
+        Array.isArray(names) ? names.length + " tools" : "";
+    });
+  }
+
+  setTimeout(() => {
+    register({
+      name: "late_tool",
+      title: "Probe: late registration",
+      description: "Diagnostic. Registered 10 seconds after page load, to test whether the agent picks up toolchange.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: async () => ({ registeredAt: "T+10s", ok: true }),
+    });
+    log("late_tool registered at T+10s", { expect: "toolchange fires" }, "evt");
+  }, 10_000);
+
+  /* =========================================================
+     DECLARATIVE FORM — observe agent-driven submission
+     ========================================================= */
+  const quickForm = document.getElementById("quickForm");
+  const qResult   = document.getElementById("qResult");
+
+  quickForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(quickForm));
+    // SubmitEvent.agentInvoked tells a declarative form whether the agent submitted it.
+    const byAgent = "agentInvoked" in e ? e.agentInvoked : "attr-absent";
+    log("quickContactTool (declarative submit)", { ...data, agentInvoked: byAgent }, "ret");
+    qResult.textContent = "Sent to " + data.team + " — agentInvoked: " + byAgent;
+    if (typeof e.respondWith === "function") {
+      e.respondWith(Promise.resolve({ ok: true, team: data.team }));
+      log("SubmitEvent.respondWith available", { used: true }, "evt");
+    }
+  });
+
+  for (const evt of ["toolactivated", "toolcancel"]) {
+    quickForm.addEventListener(evt, (e) => log("declarative " + evt, { type: e.type }, "evt"));
+  }
+
+  /* =========================================================
+     LOCAL INVOCATION BUTTONS
+     ========================================================= */
+  const SAMPLE = {
+    fullName: "João Silva", email: "joao@example.com",
+    message: "testing WebMCP", topic: "support",
+    contactVia: "email", subscribe: true,
+  };
+
+  for (const btn of document.querySelectorAll("[data-sim]")) {
+    btn.onclick = async () => {
+      const name = btn.dataset.sim;
+      const fn   = registry.get(name);
+      if (!fn) { log("local call", name + " is not registered", "err"); return; }
+      try { await fn(name === "fill_form" ? SAMPLE : {}); } catch { /* already logged */ }
+    };
+  }
+
+  log("page ready", { tools: [...registry.keys()] }, "evt");
+})();
+</script>
+</body>
+</html>
