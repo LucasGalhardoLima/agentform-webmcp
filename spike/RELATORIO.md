@@ -1,6 +1,6 @@
 # SPIKE-01 — Relatório
 
-**Data:** 28/08/2026 · **Timebox:** meio dia · **Commit testado:** `e382739`
+**Data:** 28/08/2026 · **Timebox:** meio dia · **Commit testado:** `e382739` (probes) · `20d1924` (revalidado após correções de a11y)
 **URL pública:** *pendente* — deploy no Vercel ficou com o Lucas (CLI + login).
 Todos os testes abaixo rodaram em `http://localhost:8899` (localhost é secure
 context, então a API fica disponível sem túnel).
