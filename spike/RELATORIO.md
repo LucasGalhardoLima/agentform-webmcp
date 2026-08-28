@@ -5,6 +5,11 @@
 Todos os testes abaixo rodaram em `http://localhost:8899` (localhost é secure
 context, então a API fica disponível sem túnel).
 
+> **Correção ao brief:** o SPIKE-01 assumia que "o browser do ChatGPT não alcança
+> localhost" e por isso colocava o deploy (Passo 4) como pré-requisito do teste com
+> agente (Passo 5). Isso está errado — ver §10. O deploy continua necessário para a
+> *submissão*, mas não para o go/no-go.
+
 **Ambiente:** macOS 26.2 · Chrome **151.0.7922.175** · sem extensão de agente instalada.
 
 ---
@@ -14,10 +19,11 @@ context, então a API fica disponível sem túnel).
 O ciclo mecânico completo — registrar → descobrir → executar → UI reagir → submeter —
 foi provado de ponta a ponta contra a implementação real do Chrome, não contra um
 mock. O que falta é só a última milha: um agente de linguagem natural chamando as
-tools, o que exige o deploy HTTPS público.
+tools.
 
-Nenhum bloqueio técnico apareceu no caminho. A condição é operacional (deploy +
-teste no ChatGPT desktop), não arquitetural.
+Nenhum bloqueio técnico apareceu no caminho. A condição é operacional e barata:
+instalar o ChatGPT desktop e apontar o browser interno para `localhost:8899` — **sem
+deploy**, ver §10.
 
 > Nota sobre o critério 3 do brief: em vez de esperar o agente, dirigi o pipeline
 > nativo do browser (`document.modelContext.getTools()` / `.executeTool()`) — a
@@ -30,7 +36,7 @@ teste no ChatGPT desktop), não arquitetural.
 |---|---|---|
 | 1 | Página registra tools sem erro no Chrome 149+ | ✅ 9 tools registradas, zero erro |
 | 2 | Painel DevTools lista e executa, UI reage | ⚠️ Não aberto visualmente; equivalente provado via `executeTool()` — UI reagiu |
-| 3 | Um caminho de agente real funciona | ⛔ Bloqueado por deploy público |
+| 3 | Um caminho de agente real funciona | ⛔ Não executado — destravável em minutos, sem deploy |
 | 4 | Relatório preenchido | ✅ |
 
 ---
@@ -186,24 +192,47 @@ produto vende *link de formulário agent-ready*, não *widget embedável*.
 
 ---
 
-## 10. Protocolo ChatGPT — não executado
+## 10. Protocolo ChatGPT — não executado, mas destravado
 
-Os 4 pedidos do Passo 5 dependem do deploy HTTPS público. Ficam como primeiro item
-do próximo bloco. Já sabemos, pela doc da OpenAI, o que esperar:
+Os 4 pedidos do Passo 5 **não dependem do deploy**. A doc do browser interno documenta
+explicitamente o fluxo de desenvolvimento local — subir o dev server e navegar para a
+rota local, com exemplo `http://127.0.0.1:4173/`. Então `http://localhost:8899` é
+alcançável a partir do agente hoje.
 
-| Superfície | Suporte a site tools |
+### Onde o browser interno vive
+
+| Superfície | Browser interno / site tools |
 |---|---|
-| ChatGPT desktop — browser interno | ✅ |
-| ChatGPT Work · Codex | ✅ |
-| **ChatGPT mobile** | ❌ **não suportado** |
+| **ChatGPT desktop app** (`Cmd+Shift+B`) | ✅ é aqui que acontece |
+| ChatGPT Work | ✅ |
+| **Codex CLI** · **extensão de IDE do Codex** | ❌ sem browser interno |
+| ChatGPT mobile | ❌ |
 | Workspaces Enterprise/Edu | ❌ |
 
-**O item 4 do protocolo (teste por voz) cai** — voz é mobile, e mobile não suporta
-site tools. A narrativa de acessibilidade precisa de outro veículo (ditado no
-desktop, ou voice mode do desktop se ele passar pelo browser interno — não verificado).
+Ponto que confundi na primeira leitura: **Codex não é uma superfície separada com
+browser próprio.** A doc é literal — *"Browser isn't available in Codex CLI or the
+Codex IDE extension. Open the ChatGPT desktop app to use the built-in browser."*
+O `Codex.app` instalado nesta máquina (26.506.31421) **não** substitui o ChatGPT.app
+para esse teste. O "Developer mode" do Codex (CDP, v26.609+) é outro mecanismo —
+dirige um Chrome de verdade, não é site tools — e não foi investigado.
 
-Usuário pode desligar tudo em *Settings → Browser → Permissions → Enable site tools*;
-vale checar que está ligado antes de gravar o vídeo.
+### Dois pré-requisitos fáceis de errar
+
+- **Modelo:** usar **GPT-5.6 Sol** ou **GPT-5.6 Terra**. *"GPT-5.6 Luna currently has
+  WebMCP disabled."* Se o teste falhar em silêncio, este é o primeiro suspeito.
+- **Toggle:** *Settings → Browser → Permissions → Enable site tools* ligado.
+
+### Afordância útil pro vídeo
+
+O browser interno tem um item **Site tools** na barra de endereço que lista o que a
+página oferece — é o equivalente ChatGPT do painel DevTools, e provavelmente o melhor
+plano de apoio do demo: mostrar as tools declaradas antes do agente usá-las.
+
+### O item 4 do protocolo (voz) cai
+
+Voz é mobile, e mobile não suporta site tools. A narrativa de acessibilidade precisa
+de outro veículo — ditado no desktop, ou voice mode do desktop se ele passar pelo
+browser interno (não verificado).
 
 ---
 
@@ -211,8 +240,8 @@ vale checar que está ligado antes de gravar o vídeo.
 
 | Item | Situação |
 |---|---|
-| Deploy HTTPS público (Vercel CLI) | Com o Lucas — desbloqueia o critério 3 |
-| Teste no ChatGPT desktop (4 pedidos) | Depois do deploy |
+| Teste no ChatGPT desktop (4 pedidos) | **Próximo passo** — contra localhost, sem deploy. Exige instalar o ChatGPT.app (só o Codex.app está nesta máquina) |
+| Deploy HTTPS público (Vercel CLI) | Com o Lucas — necessário para a *submissão*, não para o go/no-go |
 | Painel DevTools → Application → WebMCP | Confirmar visualmente para o vídeo |
 | [Model Context Tool Inspector](https://chromewebstore.google.com/detail/gbpdfapgefenggkahomfgkhfehlcenpd) | Não instalado — é o caminho B (agente em Chrome, usa `gemini-3-flash-preview`) |
 | Origin trial | Não registrado. Só importa para usuários de Chrome estável sem flag; o demo do hackathon roda no ChatGPT. Baixa prioridade |
@@ -225,7 +254,8 @@ vale checar que está ligado antes de gravar o vídeo.
 provada, e a doc da OpenAI confirma `document.modelContext` no browser desktop —
 mas ninguém viu um modelo chamar essas tools ainda. Se o ChatGPT ignorar as tools,
 descobrir descrições ambíguas ou pedir confirmação a cada chamada, o "wow" do vídeo
-morre. *Mitigação: deploy e teste hoje, antes de escrever qualquer feature.*
+morre. *Mitigação: testar hoje contra localhost, antes de escrever qualquer feature —
+custa instalar um app, não um deploy.*
 
 **2. Zero validação no browser + input de agente = superfície aberta.** O Chrome
 entrega `inputSchema` como texto para o modelo e não valida nada. Com formulários
